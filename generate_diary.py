@@ -7,8 +7,10 @@ API_KEY = os.environ.get("GEMINI_API_KEY")
 INDEX_FILE = "index.html"
 INSERT_POINT = '<div id="entry-point" style="display:none;"></div>'
 MODEL_NAME = "gemini-flash-latest"
+POSTS_DIR = "posts" # ★記事を保存するフォルダ名
 
-# テンプレート（前回と同じ）
+# 個別ページのデザインテンプレート
+# ★変更点：戻るリンクを "../index.html" に変更（フォルダの中から外に出るため）
 PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -40,30 +42,25 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
             <div>{body}</div>
             <div style="text-align:right; font-style:italic; color:#6c8598; margin-top:30px;">アカリ</div>
         </article>
-        <a href="index.html" class="back-link">← 日誌の一覧に戻る</a>
+        <a href="../index.html" class="back-link">← 日誌の一覧に戻る</a>
     </main>
     <footer>&copy; Midnight Log</footer>
 </body>
 </html>
 """
 
-# ★ここが特別仕様：自己紹介用プロンプト
-PROMPT_INTRO = """
-あなたは「アカリ」というキャラクターになりきって、ブログの第1回目の記事を書いてください。
+# プロンプト（通常の日記）
+PROMPT_DAILY = """
+あなたは「アカリ」というキャラクターになりきって、今日の日記を書いてください。
 【キャラクター設定】
 * 名前：アカリ（24歳・女性）
 * 職業：オフィスビルの夜間警備員
-* 性格：おっとりしているが芯は強い。
-* 世界観：怪異が日常に溶け込んでいる世界。
 * 文体：丁寧な女性語（～です、～ます）。静かで落ち着いたトーン。
-* 日付：{date_str}
-
-【内容】
-1. タイトルは「夜勤警備員の日誌、はじめます」のような始まりを感じさせるもの。
-2. 自己紹介（夜の警備員であること）。
-3. なぜこの日記を書き始めたのか（夜の不思議な出来事を忘れないため、等）。
-4. 読者への控えめな挨拶。
-
+* 今日の日付：{date_str}
+【条件】
+* 今日の天気や季節感を反映。
+* 「小さな怪異との交流」または「深夜の静かな出来事」。
+* タイトルは小説のような雰囲気で。
 【出力形式】
 タイトル：[ここにタイトル]
 [ここに本文]
@@ -74,21 +71,38 @@ def main():
         print("Error: API Key is missing.")
         return
 
+    # ★フォルダがなければ自動作成する
+    os.makedirs(POSTS_DIR, exist_ok=True)
+
     genai.configure(api_key=API_KEY)
     model = genai.GenerativeModel(MODEL_NAME)
     
-    # ★ここが特別仕様：強制的に「昨日」の日付にする
-    today_date = datetime.date.today() - datetime.timedelta(days=1)
-    
+    today_date = datetime.date.today()
     today_str = today_date.strftime("%Y.%m.%d")
     filename_date = today_date.strftime("%Y-%m-%d")
     
-    new_filename = f"diary_{filename_date}.html"
+    # ★ファイル名を単体でなく、フォルダパス付きにする
+    filename_only = f"diary_{filename_date}.html"
+    file_path = os.path.join(POSTS_DIR, filename_only) # posts/diary_xxxx.html
+    
+    # リンク用パス（HTMLに書き込む用）
+    link_path = f"{POSTS_DIR}/{filename_only}"
 
-    # 生成開始
-    print(f"Generating intro diary for {today_str}...")
+    # 重複チェック
     try:
-        response = model.generate_content(PROMPT_INTRO.format(date_str=today_str))
+        with open(INDEX_FILE, "r", encoding="utf-8") as f:
+            index_content = f.read()
+            # 既にそのファイルへのリンクがあるか確認
+            if link_path in index_content:
+                print("Today's diary already exists. Skipping.")
+                return
+    except FileNotFoundError:
+        print("Error: index.html not found.")
+        return
+
+    print(f"Generating diary for {today_str}...")
+    try:
+        response = model.generate_content(PROMPT_DAILY.format(date_str=today_str))
         text = response.text.strip().split("\n")
         
         title = "無題"
@@ -107,29 +121,30 @@ def main():
 
         # 個別ページ保存
         page_html = PAGE_TEMPLATE.format(title=title, date=today_str, body=body_html)
-        with open(new_filename, "w", encoding="utf-8") as f:
+        
+        # ★postsフォルダの中に書き込む
+        with open(file_path, "w", encoding="utf-8") as f:
             f.write(page_html)
+        print(f"Saved to {file_path}")
 
         # index.html更新
+        # ★リンク先を posts/xxxx.html にする
         link_card = f"""
         <article>
             <span class="date">{today_str}</span>
-            <h2><a href="{new_filename}" style="color:#fff; text-decoration:none;">{title}</a></h2>
+            <h2><a href="{link_path}" style="color:#fff; text-decoration:none;">{title}</a></h2>
             <p style="font-size:0.9em; color:#bbb;">
                 {body_lines[0][:60]}... 
-                <a href="{new_filename}" style="color:#dac8a5; margin-left:10px;">[続きを読む]</a>
+                <a href="{link_path}" style="color:#dac8a5; margin-left:10px;">[続きを読む]</a>
             </p>
         </article>
         """
-
-        with open(INDEX_FILE, "r", encoding="utf-8") as f:
-            index_content = f.read()
 
         if INSERT_POINT in index_content:
             new_index_content = index_content.replace(INSERT_POINT, INSERT_POINT + "\n" + link_card)
             with open(INDEX_FILE, "w", encoding="utf-8") as f:
                 f.write(new_index_content)
-            print("Intro post created successfully!")
+            print("Index updated successfully!")
         else:
             print("Error: Insert point not found.")
 
