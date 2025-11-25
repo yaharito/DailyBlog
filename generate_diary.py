@@ -1,7 +1,6 @@
 import os
 import datetime
 import google.generativeai as genai
-import time
 
 # 設定
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -49,24 +48,34 @@ def main():
         print("Error: API Key is missing.")
         return
 
-    # API設定
     genai.configure(api_key=API_KEY)
     
-    # ★修正点：モデル名をより確実なものに変更しました
-    # もしこれでもエラーが出る場合は "gemini-pro" に変更してください
-    model = genai.GenerativeModel("gemini-pro") 
+    # 使用するモデル名（最新のFlashモデル）
+    model_name = "gemini-1.5-flash"
+    
+    print(f"Attempting to use model: {model_name}")
+    
+    # --- 診断用：使えるモデル一覧を表示 ---
+    # もしエラーが出ても、ログを見れば使えるモデルが分かります
+    print("--- Available Models ---")
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                print(m.name)
+    except Exception as e:
+        print(f"List models failed: {e}")
+    print("------------------------")
 
+    model = genai.GenerativeModel(model_name)
     today = datetime.date.today().strftime("%Y.%m.%d")
 
     try:
-        # ファイル読み込み
         with open(TARGET_FILE, "r", encoding="utf-8") as f:
             content = f.read()
     except FileNotFoundError:
         print("Error: index.html not found.")
         return
 
-    # 初回判定
     if "<article>" not in content:
         print("First post detected.")
         target_prompt = PROMPT_INTRO
@@ -74,36 +83,29 @@ def main():
         print("Daily post detected.")
         target_prompt = PROMPT_DAILY
 
-    # 生成実行（エラーハンドリング強化）
     try:
         response = model.generate_content(target_prompt.format(date_str=today))
         
-        # 応答が空でないか確認
         if not response.text:
             print("Error: Response text is empty.")
             return
 
         text = response.text.strip().split("\n")
-        
-        # タイトルと本文の抽出
         title = "無題"
         body_lines = []
         
-        # 簡易的な解析ロジック
         for line in text:
-            if line.startswith("タイトル：") or line.startswith("TITLE:"):
-                title = line.replace("タイトル：", "").replace("TITLE:", "").strip()
-            else:
-                if line.strip(): # 空行以外を追加
-                    body_lines.append(line)
+            clean_line = line.strip()
+            if clean_line.startswith("タイトル：") or clean_line.startswith("TITLE:"):
+                title = clean_line.replace("タイトル：", "").replace("TITLE:", "").strip()
+            elif clean_line:
+                body_lines.append(clean_line)
         
-        # タイトルが抽出できなかった場合の保険（1行目をタイトルにする）
         if title == "無題" and len(body_lines) > 0:
              title = body_lines.pop(0)
 
         body_html = "<br>".join(body_lines)
 
-        # 記事ブロック作成
         new_entry = f"""
         <article>
             <span class="date">{today}</span>
@@ -113,16 +115,13 @@ def main():
         </article>
         """
         
-        # 挿入処理
         if INSERT_POINT in content:
             new_content = content.replace(INSERT_POINT, new_entry + "\n" + INSERT_POINT)
             with open(TARGET_FILE, "w", encoding="utf-8") as f:
                 f.write(new_content)
             print("Blog updated successfully!")
         else:
-            print(f"Error: Insert point '{INSERT_POINT}' not found in index.html.")
-            # デバッグ用にファイル内容の一部を表示
-            print(f"File content start: {content[:100]}...")
+            print(f"Error: Insert point '{INSERT_POINT}' not found.")
 
     except Exception as e:
         print(f"Generative AI Error: {e}")
