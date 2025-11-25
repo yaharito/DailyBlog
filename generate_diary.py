@@ -51,7 +51,7 @@ def main():
     genai.configure(api_key=API_KEY)
     
     # 使用するモデル名（最新のFlashモデル）
-    model_name = "gemini-1.5-flash"
+    model_name = "gemini-flash-latest"
     
     print(f"Attempting to use model: {model_name}")
     
