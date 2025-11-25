@@ -54,7 +54,7 @@ def main():
     
     # ★修正点：モデル名をより確実なものに変更しました
     # もしこれでもエラーが出る場合は "gemini-pro" に変更してください
-    model = genai.GenerativeModel("gemini-1.5-flash-latest") 
+    model = genai.GenerativeModel("gemini-pro") 
 
     today = datetime.date.today().strftime("%Y.%m.%d")
 
