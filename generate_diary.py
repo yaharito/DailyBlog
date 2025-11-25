@@ -4,40 +4,66 @@ import google.generativeai as genai
 
 # 設定
 API_KEY = os.environ.get("GEMINI_API_KEY")
-TARGET_FILE = "index.html"
-# 目印（CSSで隠したdivタグ）
+INDEX_FILE = "index.html"
 INSERT_POINT = '<div id="entry-point" style="display:none;"></div>'
+MODEL_NAME = "gemini-flash-latest"
 
-# --- プロンプト定義 ---
+# テンプレート（前回と同じ）
+PAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title} | 夜勤警備員の日誌</title>
+    <style>
+        body {{ background-color: #151b2b; color: #f0e6d2; font-family: "Yu Mincho", serif; line-height: 1.9; margin: 0; padding: 0; }}
+        header {{ text-align: center; padding: 40px 20px; background: linear-gradient(to bottom, #0f131f, #151b2b); border-bottom: 1px solid #2c3e50; }}
+        h1 {{ font-size: 1.4em; letter-spacing: 0.15em; color: #fff; margin: 0; }}
+        main {{ max-width: 760px; margin: 0 auto; padding: 40px 20px; }}
+        article {{ background-color: rgba(255, 255, 255, 0.03); padding: 40px; margin-bottom: 60px; border-radius: 4px; }}
+        h2 {{ font-size: 1.6em; margin: 0 0 25px 0; color: #fff; border-bottom: 1px solid #3d4c63; padding-bottom: 15px; }}
+        p {{ margin-bottom: 1.8em; text-align: justify; }}
+        .date {{ display: block; color: #6c8598; font-size: 0.85em; margin-bottom: 10px; }}
+        .back-link {{ display: block; margin-top: 40px; text-align: center; color: #dac8a5; text-decoration: none; }}
+        .back-link:hover {{ color: #fff; }}
+        footer {{ text-align: center; padding: 50px 20px; font-size: 0.75em; color: #4a5f70; }}
+    </style>
+</head>
+<body>
+    <header>
+        <h1>夜勤警備員の日誌</h1>
+    </header>
+    <main>
+        <article>
+            <span class="date">{date}</span>
+            <h2>{title}</h2>
+            <div>{body}</div>
+            <div style="text-align:right; font-style:italic; color:#6c8598; margin-top:30px;">アカリ</div>
+        </article>
+        <a href="index.html" class="back-link">← 日誌の一覧に戻る</a>
+    </main>
+    <footer>&copy; Midnight Log</footer>
+</body>
+</html>
+"""
+
+# ★ここが特別仕様：自己紹介用プロンプト
 PROMPT_INTRO = """
-あなたは「アカリ」というキャラクターになりきって、ブログの記念すべき「第1回目の記事」を書いてください。
+あなたは「アカリ」というキャラクターになりきって、ブログの第1回目の記事を書いてください。
 【キャラクター設定】
 * 名前：アカリ（24歳・女性）
 * 職業：オフィスビルの夜間警備員
 * 性格：おっとりしているが芯は強い。
 * 世界観：怪異が日常に溶け込んでいる世界。
 * 文体：丁寧な女性語（～です、～ます）。静かで落ち着いたトーン。
-* 今日の日付：{date_str}
+* 日付：{date_str}
+
 【内容】
 1. タイトルは「夜勤警備員の日誌、はじめます」のような始まりを感じさせるもの。
-2. 自己紹介。なぜ書き始めたか。
-3. 読者への控えめな挨拶。
-【出力形式】
-タイトル：[ここにタイトル]
-[ここに本文]
-"""
+2. 自己紹介（夜の警備員であること）。
+3. なぜこの日記を書き始めたのか（夜の不思議な出来事を忘れないため、等）。
+4. 読者への控えめな挨拶。
 
-PROMPT_DAILY = """
-あなたは「アカリ」というキャラクターになりきって、今日の日記を書いてください。
-【キャラクター設定】
-* 名前：アカリ（24歳・女性）
-* 職業：オフィスビルの夜間警備員
-* 文体：丁寧な女性語（～です、～ます）。静かで落ち着いたトーン。
-* 今日の日付：{date_str}
-【条件】
-* 今日の天気や季節感を反映。
-* 「小さな怪異との交流」または「深夜の静かな出来事」。
-* タイトルは小説のような雰囲気で。
 【出力形式】
 タイトル：[ここにタイトル]
 [ここに本文]
@@ -49,51 +75,24 @@ def main():
         return
 
     genai.configure(api_key=API_KEY)
+    model = genai.GenerativeModel(MODEL_NAME)
     
-    # 使用するモデル名（最新のFlashモデル）
-    model_name = "gemini-flash-latest"
+    # ★ここが特別仕様：強制的に「昨日」の日付にする
+    today_date = datetime.date.today() - datetime.timedelta(days=1)
     
-    print(f"Attempting to use model: {model_name}")
+    today_str = today_date.strftime("%Y.%m.%d")
+    filename_date = today_date.strftime("%Y-%m-%d")
     
-    # --- 診断用：使えるモデル一覧を表示 ---
-    # もしエラーが出ても、ログを見れば使えるモデルが分かります
-    print("--- Available Models ---")
+    new_filename = f"diary_{filename_date}.html"
+
+    # 生成開始
+    print(f"Generating intro diary for {today_str}...")
     try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                print(m.name)
-    except Exception as e:
-        print(f"List models failed: {e}")
-    print("------------------------")
-
-    model = genai.GenerativeModel(model_name)
-    today = datetime.date.today().strftime("%Y.%m.%d")
-
-    try:
-        with open(TARGET_FILE, "r", encoding="utf-8") as f:
-            content = f.read()
-    except FileNotFoundError:
-        print("Error: index.html not found.")
-        return
-
-    if "<article>" not in content:
-        print("First post detected.")
-        target_prompt = PROMPT_INTRO
-    else:
-        print("Daily post detected.")
-        target_prompt = PROMPT_DAILY
-
-    try:
-        response = model.generate_content(target_prompt.format(date_str=today))
-        
-        if not response.text:
-            print("Error: Response text is empty.")
-            return
-
+        response = model.generate_content(PROMPT_INTRO.format(date_str=today_str))
         text = response.text.strip().split("\n")
+        
         title = "無題"
         body_lines = []
-        
         for line in text:
             clean_line = line.strip()
             if clean_line.startswith("タイトル：") or clean_line.startswith("TITLE:"):
@@ -106,25 +105,36 @@ def main():
 
         body_html = "<br>".join(body_lines)
 
-        new_entry = f"""
+        # 個別ページ保存
+        page_html = PAGE_TEMPLATE.format(title=title, date=today_str, body=body_html)
+        with open(new_filename, "w", encoding="utf-8") as f:
+            f.write(page_html)
+
+        # index.html更新
+        link_card = f"""
         <article>
-            <span class="date">{today}</span>
-            <h2>{title}</h2>
-            <p>{body_html}</p>
-            <div class="signature">アカリ</div>
+            <span class="date">{today_str}</span>
+            <h2><a href="{new_filename}" style="color:#fff; text-decoration:none;">{title}</a></h2>
+            <p style="font-size:0.9em; color:#bbb;">
+                {body_lines[0][:60]}... 
+                <a href="{new_filename}" style="color:#dac8a5; margin-left:10px;">[続きを読む]</a>
+            </p>
         </article>
         """
-        
-        if INSERT_POINT in content:
-            new_content = content.replace(INSERT_POINT, new_entry + "\n" + INSERT_POINT)
-            with open(TARGET_FILE, "w", encoding="utf-8") as f:
-                f.write(new_content)
-            print("Blog updated successfully!")
+
+        with open(INDEX_FILE, "r", encoding="utf-8") as f:
+            index_content = f.read()
+
+        if INSERT_POINT in index_content:
+            new_index_content = index_content.replace(INSERT_POINT, INSERT_POINT + "\n" + link_card)
+            with open(INDEX_FILE, "w", encoding="utf-8") as f:
+                f.write(new_index_content)
+            print("Intro post created successfully!")
         else:
-            print(f"Error: Insert point '{INSERT_POINT}' not found.")
+            print("Error: Insert point not found.")
 
     except Exception as e:
-        print(f"Generative AI Error: {e}")
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
     main()
