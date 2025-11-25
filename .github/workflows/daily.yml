@@ -1,8 +1,8 @@
 name: Daily Post
 on:
   schedule:
-    - cron: '0 21 * * *' # 日本時間 朝6時に実行
-  workflow_dispatch: # 手動実行ボタン
+    - cron: '0 21 * * *' # 毎日投稿
+  workflow_dispatch: # 手動実行
 
 permissions:
   contents: write
@@ -22,6 +22,6 @@ jobs:
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          git commit -m "New Diary Entry" || echo "No changes"
+          git add .
+          git commit -m "Update Diary" || echo "No changes"
           git push
