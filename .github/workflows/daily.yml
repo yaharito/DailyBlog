@@ -1,0 +1,27 @@
+name: Daily Post
+on:
+  schedule:
+    - cron: '0 21 * * *' # 日本時間 朝6時に実行
+  workflow_dispatch: # 手動実行ボタン
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: pip install google-generativeai
+      - env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python generate_diary.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "New Diary Entry" || echo "No changes"
+          git push
