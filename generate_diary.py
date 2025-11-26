@@ -7,10 +7,9 @@ API_KEY = os.environ.get("GEMINI_API_KEY")
 INDEX_FILE = "index.html"
 INSERT_POINT = '<div id="entry-point" style="display:none;"></div>'
 MODEL_NAME = "gemini-flash-latest"
-POSTS_DIR = "posts" # ★記事を保存するフォルダ名
+POSTS_DIR = "posts"
 
-# 個別ページのデザインテンプレート
-# ★変更点：戻るリンクを "../index.html" に変更（フォルダの中から外に出るため）
+# テンプレート
 PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -49,7 +48,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
-# プロンプト（通常の日記）
+# プロンプト
 PROMPT_DAILY = """
 あなたは「アカリ」というキャラクターになりきって、今日の日記を書いてください。
 【キャラクター設定】
@@ -71,36 +70,36 @@ def main():
         print("Error: API Key is missing.")
         return
 
-    # ★フォルダがなければ自動作成する
     os.makedirs(POSTS_DIR, exist_ok=True)
 
     genai.configure(api_key=API_KEY)
     model = genai.GenerativeModel(MODEL_NAME)
     
-    today_date = datetime.date.today()
+    # ★★★ ここが修正ポイント ★★★
+    # サーバーの時間(UTC)を取得し、9時間足して日本時間(JST)にする
+    utc_now = datetime.datetime.now(datetime.timezone.utc)
+    jst_now = utc_now + datetime.timedelta(hours=9)
+    today_date = jst_now.date()
+    # ★★★★★★★★★★★★★★★★★
+
     today_str = today_date.strftime("%Y.%m.%d")
     filename_date = today_date.strftime("%Y-%m-%d")
     
-    # ★ファイル名を単体でなく、フォルダパス付きにする
     filename_only = f"diary_{filename_date}.html"
-    file_path = os.path.join(POSTS_DIR, filename_only) # posts/diary_xxxx.html
-    
-    # リンク用パス（HTMLに書き込む用）
+    file_path = os.path.join(POSTS_DIR, filename_only)
     link_path = f"{POSTS_DIR}/{filename_only}"
 
-    # 重複チェック
     try:
         with open(INDEX_FILE, "r", encoding="utf-8") as f:
             index_content = f.read()
-            # 既にそのファイルへのリンクがあるか確認
             if link_path in index_content:
-                print("Today's diary already exists. Skipping.")
+                print(f"Skipping: Diary for {today_str} already exists.")
                 return
     except FileNotFoundError:
         print("Error: index.html not found.")
         return
 
-    print(f"Generating diary for {today_str}...")
+    print(f"Generating diary for {today_str} (JST)...")
     try:
         response = model.generate_content(PROMPT_DAILY.format(date_str=today_str))
         text = response.text.strip().split("\n")
@@ -119,16 +118,12 @@ def main():
 
         body_html = "<br>".join(body_lines)
 
-        # 個別ページ保存
         page_html = PAGE_TEMPLATE.format(title=title, date=today_str, body=body_html)
         
-        # ★postsフォルダの中に書き込む
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(page_html)
         print(f"Saved to {file_path}")
 
-        # index.html更新
-        # ★リンク先を posts/xxxx.html にする
         link_card = f"""
         <article>
             <span class="date">{today_str}</span>
